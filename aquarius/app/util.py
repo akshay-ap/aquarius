@@ -36,7 +36,10 @@ def make_paginate_response(query_list_result, search_model):
 def get_request_data(request, url_params_only=False):
     if url_params_only:
         return request.args
-    return request.args if request.args else request.json
+    try:
+        return request.args if request.args else request.json
+    except Exception:
+        return {}
 
 
 def datetime_converter(o):

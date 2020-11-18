@@ -2,6 +2,7 @@
 #  SPDX-License-Identifier: Apache-2.0
 
 import logging
+import os
 
 import elasticsearch
 from oceandb_driver_interface import OceanDb
@@ -11,7 +12,26 @@ from oceandb_driver_interface.search_model import FullTextModel, QueryModel
 class Dao(object):
 
     def __init__(self, oceandb=None, config_file=None):
-        self.oceandb = oceandb or OceanDb(config_file).plugin
+        if not oceandb:
+            if not config_file:
+                config_file = os.getenv('CONFIG_FILE')
+            oceandb = OceanDb(config_file).plugin
+        self.oceandb = oceandb
+        self._pools_index = 'dtpools'
+        self._dt_index = 'datatokens'
+
+        es = self.oceandb.driver.es
+        try:
+            es.indices.create(index=self._pools_index, ignore=400)
+        except Exception:
+            pass
+        try:
+            es.indices.create(index=self._dt_index, ignore=400)
+        except Exception:
+            pass
+
+        self.pools_db = es
+        self.dt_db = es
 
     def get_all_listed_assets(self):
         assets = self.oceandb.list()
@@ -135,3 +155,20 @@ class Dao(object):
             object_list.append(x['_source'])
 
         return object_list, page['hits']['total']
+
+    def update_dt_pool_data(self, pool_address, data):
+        return self.pools_db.index(
+            index=self._pools_index,
+            id=pool_address,
+            body=data,
+            doc_type='_doc',
+            refresh='wait_for'
+        )['_id']
+
+    def get_pool(self, pool_address):
+        return self.pools_db.get(
+            index=self._pools_index,
+            id=pool_address,
+            doc_type='_doc'
+        )['_source']
+

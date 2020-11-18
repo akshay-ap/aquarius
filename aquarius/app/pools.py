@@ -5,11 +5,10 @@ import os
 from flask import Blueprint, request, Response
 
 from ocean_lib.config_provider import ConfigProvider
-from ocean_lib.models.bpool import BPool
 from ocean_lib.ocean.ocean import Ocean
-from ocean_lib.ocean.util import from_base_18
 
-from aquarius.app.pool_helper import build_liquidity_and_price_history
+import aquarius.app.pool_helper as pool_helper
+from aquarius.app.dao import Dao
 from aquarius.app.util import get_request_data
 
 pools = Blueprint('pools', __name__)
@@ -27,18 +26,24 @@ def get_liquidity_history(poolAddress):
     """
     try:
         result = dict()
-        ocean = Ocean(ConfigProvider.get_config())
-        pool = BPool(poolAddress)
-        dt_address = ocean.pool.get_token_address(poolAddress, pool, validate=False)
-        swap_fee = from_base_18(pool.getSwapFee())
-        ocn_weight = from_base_18(pool.getDenormalizedWeight(ocean.OCEAN_address))
-        dt_weight = from_base_18(pool.getDenormalizedWeight(dt_address))
+        data = get_request_data(request) or {}
+        dt_address = data.get('datatokenAddress', None)
 
-        ocn_add_remove_list, dt_add_remove_list = ocean.pool.get_liquidity_history(poolAddress)
+        ocean = Ocean(ConfigProvider.get_config())
+        dao = Dao()
+        if not dt_address:
+            dt_address = ocean.pool.get_token_address(poolAddress, validate=False)
+
+        pool_data = pool_helper.get_pool_info(ocean, dao, poolAddress, dt_address)
+        swap_fee = pool_data['swapFee']
+        ocn_weight = pool_data['oceanWeight']
+        dt_weight = pool_data['dtWeight']
+
+        ocn_add_remove_list, dt_add_remove_list = pool_helper.get_liquidity_history(ocean, dao, poolAddress)
         ocn_add_remove_list = [(v, int(t)) for v, t in ocn_add_remove_list]
         dt_add_remove_list = [(v, int(t)) for v, t in dt_add_remove_list]
 
-        ocn_reserve_history, dt_reserve_history, price_history = build_liquidity_and_price_history(
+        ocn_reserve_history, dt_reserve_history, price_history = pool_helper.build_liquidity_and_price_history(
             ocn_add_remove_list, dt_add_remove_list, ocn_weight, dt_weight, swap_fee
         )
 
@@ -65,9 +70,19 @@ def get_current_liquidity_stats(poolAddress):
         dt_address = data.get('datatokenAddress', None)
         from_block = data.get('fromBlock', None)
         to_block = data.get('toBlock', None)
+        complete_info = int(data.get('includeAllPoolInfo', '0'))
         ocean = Ocean(ConfigProvider.get_config())
-        pool_info = ocean.pool.get_short_pool_info(poolAddress, dt_address, from_block, to_block)
+        if complete_info:
+            pool_info = ocean.pool.get_pool_info(poolAddress, dt_address, from_block, to_block)
+        else:
+            dao = Dao()
+            pool_info = pool_helper.get_pool_info(ocean, dao, poolAddress, from_block, to_block)
+            pool_info.pop('LOG_JOIN')
+            pool_info.pop('LOG_EXIT')
+            pool_info.pop('LOG_SWAP')
+
         return Response(json.dumps(pool_info), 200, content_type='application/json')
+
     except Exception as e:
         logger.error(f'pools/liquidity/{poolAddress}: {str(e)}')
         return f'Get pool current liquidity stats failed: {str(e)}', 500
