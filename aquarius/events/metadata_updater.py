@@ -389,7 +389,7 @@ class MetadataUpdater(BlockProcessingClass):
 
             price = from_base_18(ex_data.fixedRate)
             supply = from_base_18(ex_data.supply)
-            return price, supply, exchange_id
+            return price, supply, exchange_id=exchange_id
         except Exception as e:
             logger.error(
                 f"Reading exchange price failed for datatoken {dt_address}, "
